@@ -21,6 +21,10 @@
   fprintf(stderr, (msg), ## __VA_ARGS__);                       \
   exit(1)
 
+#define warning(msg, ...)                                         \
+  fprintf(stderr, "Warning %d:%d: ", currentLine, currentColumn); \
+  fprintf(stderr, (msg), ## __VA_ARGS__);
+
 typedef enum {
    NO_OP,
    OR,
@@ -73,6 +77,8 @@ static char *currentTermStart = termPool;
 static int currentLine = 0;
 static int currentColumn = 0;
 static int currentNonterm = 0;
+static int memcpy2(char *dest, char *src, int numBytes, char escapeChar,
+            char *toEscape, char *toPut);
 
 // writing this macro as a single statement instead of 2 separate ones is to allow
 // it to be use to deference the character we moved to
@@ -88,6 +94,7 @@ typedef struct NonTerminalNode {
   struct NonTerminalNode* right;
 } NonTerminalNode, *NonTerminalNodePtr;
 */
+
 
 static void parse_regex(char *regex);
 static int parse_header(char **regexPtr);
@@ -222,7 +229,7 @@ static void parse_body(char **regexPtr, Expression *exprPtr) {
       log(" AND ");
       break;
     case ZERO_OR_MORE:
-      log(" * ");
+      log(" ZERO_OR_MORE ");
       break;
     }
   }
@@ -251,6 +258,11 @@ static void *parse_operand(char **regexPtr) {
     moveRegexPtr(*regexPtr);
   }
 
+  if (*(*regexPtr-1) == '*' && *(*regexPtr-2) != '@') {
+    --(*regexPtr);
+    --currentColumn;
+  }
+
   int operandNameSize = *regexPtr - operandStart;
 
   if (*operandStart == '$') {
@@ -277,34 +289,10 @@ static void *parse_operand(char **regexPtr) {
 
     return (void*)(&nonterms[opIdx]);
   } else {
-    // check for special cases
-    if (operandNameSize == 2) {
-      if (*operandStart == '@') {
-        switch (*(operandStart+1)) {
-        case '_':
-          // replace the underscore with an actual space
-          *(operandStart+1) = ' ';
-          break;
-        case '@':
-        case '|':
-        case '*':
-        case '$':
-          // all is fine
-          break;
-        default:
-          // busted, incorrect special combination
-          fatal_error("Incorrect special combination: @%c\n", *(operandStart+1));
-        }
 
-        // get rid of the extra @
-        *currentTermStart++ = *(operandStart+1);
-        *currentTermStart++ = '\0';
-        return currentTermStart-2;
-      }
-    }
-
-    memcpy(currentTermStart, operandStart, operandNameSize);
-    currentTermStart[operandNameSize] = '\0';
+    int size = memcpy2(currentTermStart, operandStart, operandNameSize,
+                       '@', "_@|*$", " @|*$");
+    currentTermStart[size] = '\0';
     currentTermStart += (operandNameSize + 1);
     //log("op name: %s\n", (currentTermStart-(operandNameSize+1)));
 
@@ -334,4 +322,52 @@ static ExpType parse_operator(char **regexPtr) {
   }
 
   return opCode;
+}
+
+/// Similar to std memcpy but with an additional support for escape sequences
+/// An escapeChar that marks the start of an escape sequence is provided
+/// and a list a valid escaped character is provided to check the validity
+/// of the provided sequence.
+///
+/// It is assumed that the caller know what he is doing and that src numBytes
+/// actuaully has numBytes of accissable memory. No seg fault should happen
+/// between src and src+numBytes. Same goes for dest, we assume it has the
+/// enough allocated memory
+///
+/// Returns the number of bytes copied to dest (might be less than numBytes)
+/// because of escape sequences.
+static int memcpy2(char *dest, char *src, int numBytes, char escapeChar,
+            char *toEscape, char *toPut) {
+  int copied = numBytes;
+  int c;
+
+  while (--numBytes >= 0) {
+    if (*src == escapeChar) {
+      // avoid seg faults by not going beyond the end of the given src
+      // block of memory
+      if (numBytes <= 0) {
+        fatal_error("An escape sequence at the end of a string\n");
+      }
+
+      src++;
+      char *pos = strchr(toEscape, *src);
+
+      if (pos == NULL) {
+        warning("Incorrect escape sequence\n");
+        // copy whatever char we found
+        c = *src;
+      } else {
+        // replace the found char with the corresponding one.
+        c = *(toPut + (pos-toEscape));
+      }
+
+      copied--;
+    }
+
+    *(char*)dest = *(char*)src;
+    dest++;
+    src++;
+  }
+
+  return copied;
 }
