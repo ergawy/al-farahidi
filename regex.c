@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <assert.h>
 
 #define MAX_NONTERMS       256
 #define MAX_TOTAL_TERM_LEN 8192
@@ -70,10 +71,15 @@ typedef struct NonTerminal {
 } NonTerminal, *NonTerminalPtr;
 
 static NonTerminal nonterms[MAX_NONTERMS];
+
 /// A memory pool for storing all terminals. A '\0' separates a terminal from its
 /// next neighbor.
 static char termPool[MAX_TOTAL_TERM_LEN];
 static char *currentTermStart = termPool;
+
+static Expression exprPool[MAX_NESTED_EXPRS];
+static int freeExprIdx = 0;
+
 static int currentLine = 0;
 static int currentColumn = 0;
 static int currentNonterm = 0;
@@ -101,6 +107,7 @@ static int parse_header(char **regexPtr);
 static void parse_body(char **regexPtr, int nontermIdx);
 static void *parse_operand(char **regexPtr);
 static ExpType parse_operator(char **regexPtr);
+static void log_expr(Expression* expr);
 
 void parse_regex_spec(FILE *in) {
   //log("%ld, %ld, %ld\n", sizeof(char*), sizeof(Expression),
@@ -165,7 +172,7 @@ static int parse_header(char **regexPtr) {
   memcpy(nontermName, nontermNameStart, nontermNameSize);
   nontermName[nontermNameSize] = '\0';
 
-  log("Line %d: Found a nonterm: >>%s<<\n", currentLine, nontermName);
+  log("\nLine %d: Found a nonterm: >>%s<<\n", currentLine, nontermName);
   int nontermIdx = -1;
 
   // check if the non-term was encountered before
@@ -211,26 +218,45 @@ static int parse_header(char **regexPtr) {
 
 static void parse_body(char **regexPtr, int nontermIdx) {
   void *op = NULL;
+  Expression *currentExpr = &(nonterms[nontermIdx].expr);
+  Expression *prevExpr = currentExpr;
+
   while ((op = parse_operand(regexPtr)) != NULL) {
-    log("%s ", op);
+    //log("%s ", op);
 
     ExpType opCode = parse_operator(regexPtr);
     switch (opCode) {
     case NO_OP:
-      log(" NO_OP ");
+      //log(" NO_OP ");
       break;
     case OR:
-      log(" OR ");
+      //log(" OR ");
       break;
     case AND:
-      log(" AND ");
+      //log(" AND ");
       break;
     case ZERO_OR_MORE:
-      log(" ZERO_OR_MORE ");
+      //log(" ZERO_OR_MORE ");
       break;
     }
+
+    currentExpr->type = opCode;
+    currentExpr->op1 = op;
+    prevExpr = currentExpr;
+    currentExpr = prevExpr->op2 = &(exprPool[freeExprIdx]);
+    freeExprIdx++;
   }
 
+  assert((prevExpr->type == NO_OP || prevExpr->type == ZERO_OR_MORE)
+         && "Last expression should be a no op\n");
+
+  // we requested 1 extra expression from the pool at last iteration
+  // return it back and delete it from the 2nd operand of the last
+  // actual expression (should be a no op or unary expression).
+  freeExprIdx--;
+  prevExpr->op2 = NULL;
+
+  log_expr(&(nonterms[nontermIdx].expr));
   log("\n");
 }
 
@@ -367,4 +393,30 @@ static int memcpy2(char *dest, char *src, int numBytes, char escapeChar,
   }
 
   return copied;
+}
+
+static void log_expr(Expression* expr) {
+  if (expr == NULL) {
+    return;
+  }
+
+  log("(%s", (char*)expr->op1);
+
+  switch(expr->type) {
+  case NO_OP:
+    log("");
+    break;
+  case OR:
+    log(" | ");
+    break;
+  case AND:
+    log(" & ");
+    break;
+  case ZERO_OR_MORE:
+    log("*");
+    break;
+  }
+
+  log_expr((Expression*)expr->op2);
+  log(")");
 }
