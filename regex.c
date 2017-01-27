@@ -98,7 +98,7 @@ typedef struct NonTerminalNode {
 
 static void parse_regex(char *regex);
 static int parse_header(char **regexPtr);
-static void parse_body(char **regexPtr, Expression *exprPtr);
+static void parse_body(char **regexPtr, int nontermIdx);
 static void *parse_operand(char **regexPtr);
 static ExpType parse_operator(char **regexPtr);
 
@@ -132,7 +132,7 @@ static void parse_regex(char *regex) {
   }
 
   int nontermIdx = parse_header(&regex);
-  parse_body(&regex, NULL);
+  parse_body(&regex, nontermIdx);
 
   nonterms[nontermIdx].complete = TRUE;
 }
@@ -209,13 +209,10 @@ static int parse_header(char **regexPtr) {
   return nontermIdx;
 }
 
-static void parse_body(char **regexPtr, Expression *exprPtr) {
-  while (**regexPtr != '\0' && **regexPtr != '\n') {
-    void *op = parse_operand(regexPtr);
+static void parse_body(char **regexPtr, int nontermIdx) {
+  void *op = NULL;
+  while ((op = parse_operand(regexPtr)) != NULL) {
     log("%s ", op);
-    if (**regexPtr == '\0' || **regexPtr == '\n') {
-      break;
-    }
 
     ExpType opCode = parse_operator(regexPtr);
     switch (opCode) {
