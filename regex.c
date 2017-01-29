@@ -31,26 +31,23 @@ typedef enum {
    OR,
    AND,
    ZERO_OR_MORE
-} ExpType;
+} OperatorType;
+
+typedef enum {
+  NESTED_EXPRESSION,
+  LEAF_OPERATOR,
+  NOTHING
+} OperandType;
 
 typedef struct Expression {
   // each operand can be either a terminal (char[]), a non-terminal
   // (an instance of NonTerminal struct), or even a nested expression
-  //
-  // in case there is a nested expression, the first memer will recusively
-  // end up being a char[]
-  //
-  // I am not sure whether this is a good design or not, but one way to
-  // tell whether a void* is a term, non-term, or expr, is to check for
-  // sizeof of the underlying entity. it's guaranteed that:
-  //   1) sizeof(term) < sizeof(expr) sice a term is a char* and an
-  //      expr contains 2 of those in addition to other stuff.
-  //   2) sizeof(expr) < sizeof(nonterm) since a nonterm owns its exprsssion
-  //      rather than a pointer to it.
   void *op1;
   void *op2;
 
-  ExpType type;
+  OperandType op1Type;
+  OperandType op2Type;
+  OperatorType type;
 } Expression;
 
 // (1) typedef to avoid having to use "struct NonTerminal" everywhere
@@ -106,7 +103,7 @@ static void parse_regex(char *regex);
 static int parse_header(char **regexPtr);
 static void parse_body(char **regexPtr, int nontermIdx);
 static void *parse_operand(char **regexPtr);
-static ExpType parse_operator(char **regexPtr);
+static OperatorType parse_operator(char **regexPtr);
 static void log_expr(Expression* expr);
 
 void parse_regex_spec(FILE *in) {
@@ -222,28 +219,39 @@ static void parse_body(char **regexPtr, int nontermIdx) {
   Expression *prevExpr = currentExpr;
 
   while ((op = parse_operand(regexPtr)) != NULL) {
-    //log("%s ", op);
-
-    ExpType opCode = parse_operator(regexPtr);
-    switch (opCode) {
-    case NO_OP:
-      //log(" NO_OP ");
-      break;
-    case OR:
-      //log(" OR ");
-      break;
-    case AND:
-      //log(" AND ");
-      break;
-    case ZERO_OR_MORE:
-      //log(" ZERO_OR_MORE ");
-      break;
-    }
-
+    OperatorType opCode = parse_operator(regexPtr);
     currentExpr->type = opCode;
     currentExpr->op1 = op;
+    currentExpr->op1Type = LEAF_OPERATOR;
+
+    // found a suffix operator
+    // parse the next operator
+    //
+    // the * expression will be the 1st operand of a new expression
+    // this new expression is actually the 2nd operand of prevExpr
+    // in other words, it contains the * expression
+    //
+    // example: (a b* ...) ==> (a & (b * (...))) will be replaced with
+    // (a & ((b*) & (...)))
+    if (opCode == ZERO_OR_MORE) {
+      currentExpr->op2 = NULL;
+      currentExpr->op2Type = NOTHING;
+
+      Expression* newExpr = &(exprPool[freeExprIdx]);
+      newExpr->type = parse_operator(regexPtr);
+      newExpr->op1 = currentExpr;
+      newExpr->op1Type = NESTED_EXPRESSION;
+
+      prevExpr->op2 = newExpr;
+      prevExpr->op2Type = NESTED_EXPRESSION;
+
+      currentExpr = newExpr;
+      freeExprIdx++;
+    }
+
     prevExpr = currentExpr;
     currentExpr = prevExpr->op2 = &(exprPool[freeExprIdx]);
+    prevExpr->op2Type = NESTED_EXPRESSION;
     freeExprIdx++;
   }
 
@@ -323,12 +331,12 @@ static void *parse_operand(char **regexPtr) {
   }
 }
 
-static ExpType parse_operator(char **regexPtr) {
+static OperatorType parse_operator(char **regexPtr) {
   while (isspace(**regexPtr) && **regexPtr != '\n') {
     moveRegexPtr(*regexPtr);
   }
 
-  ExpType opCode = NO_OP;
+  OperatorType opCode = NO_OP;
 
   if (**regexPtr == '\n' || **regexPtr == '\0') {
     opCode = NO_OP;
@@ -400,7 +408,16 @@ static void log_expr(Expression* expr) {
     return;
   }
 
-  log("(%s", (char*)expr->op1);
+  log("(");
+
+  switch(expr->op1Type) {
+  case NESTED_EXPRESSION:
+    log_expr(expr->op1);
+    break;
+  case LEAF_OPERATOR:
+    log("%s", (char*)(expr->op1));
+    break;
+  }
 
   switch(expr->type) {
   case NO_OP:
@@ -417,6 +434,14 @@ static void log_expr(Expression* expr) {
     break;
   }
 
-  log_expr((Expression*)expr->op2);
+  switch(expr->op2Type) {
+  case NESTED_EXPRESSION:
+    log_expr(expr->op2);
+    break;
+  case LEAF_OPERATOR:
+    log("%s", (char*)(expr->op2));
+    break;
+  }
+
   log(")");
 }
