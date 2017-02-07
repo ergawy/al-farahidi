@@ -1,7 +1,7 @@
 #ifndef REGEX_H
 #define REGEX_H
 
-#include <stdio.h>
+#include "utils.h"
 
 #define MAX_NONTERMS       256
 #define MAX_TOTAL_TERM_LEN 8192

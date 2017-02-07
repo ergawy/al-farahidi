@@ -1,10 +1,5 @@
-#include <stdio.h>
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
-#include <assert.h>
-#include "../include/regex.h"
 #include "../include/utils.h"
+#include "../include/regex.h"
 
 #define fatal_error(msg, ...)                                   \
   fprintf(stderr, "Error %d:%d: ", currentLine, currentColumn); \
