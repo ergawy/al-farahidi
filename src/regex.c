@@ -3,19 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-
-#define MAX_NONTERMS       256
-#define MAX_TOTAL_TERM_LEN 8192
-#define MAX_NONTERM_NAME   64
-// an average of 4 nested expressions per non-terminal looks like a reasonable
-// value, this is multiplied by the maximum # of non-terms we can have
-#define MAX_NESTED_EXPRS   4 * MAX_NONTERMS
-#define MAX_REGEX_LEN      1024
-#define TRUE               1
-#define FALSE              0
-
-#define log(msg, ...)                   \
-  fprintf(stdout, (msg), ## __VA_ARGS__)
+#include "../include/regex.h"
+#include "../include/utils.h"
 
 #define fatal_error(msg, ...)                                   \
   fprintf(stderr, "Error %d:%d: ", currentLine, currentColumn); \
@@ -25,47 +14,6 @@
 #define warning(msg, ...)                                         \
   fprintf(stderr, "Warning %d:%d: ", currentLine, currentColumn); \
   fprintf(stderr, (msg), ## __VA_ARGS__);
-
-typedef enum {
-   NO_OP,
-   OR,
-   AND,
-   ZERO_OR_MORE
-} OperatorType;
-
-typedef enum {
-  NESTED_EXPRESSION,
-  LEAF_OPERATOR,
-  NOTHING
-} OperandType;
-
-typedef struct Expression {
-  // each operand can be either a terminal (char[]), a non-terminal
-  // (an instance of NonTerminal struct), or even a nested expression
-  void *op1;
-  void *op2;
-
-  OperandType op1Type;
-  OperandType op2Type;
-  OperatorType type;
-} Expression;
-
-// (1) typedef to avoid having to use "struct NonTerminal" everywhere
-// a declaration is needed
-// (2) According to the spec (C11, section 6.7.2.1, paragraph 15), the members of
-// a struct are not reordered. This way an address of a struct is the same as its
-// first member. I use this fact to treat non-terminals just like terminals (which
-// are simple char[]) in places where is suitable.
-typedef struct NonTerminal {
-  char name[MAX_NONTERM_NAME];
-  // the expression defining the non-terminal
-  struct Expression expr;
-  // this will be false when a non-terminal is used in the definition of another one
-  // before its definition is actually parsed
-  _Bool complete;
-  // index into the global nonterms array. Only for debugging purposes for now.
-  int idx;
-} NonTerminal, *NonTerminalPtr;
 
 static NonTerminal nonterms[MAX_NONTERMS];
 
@@ -88,17 +36,6 @@ static int memcpy2(char *dest, char *src, int numBytes, char escapeChar,
 #define moveRegexPtr(regex)        \
   ((++currentColumn), (++regex))
 
-/*
-/// A binary search tree for non-terminals
-/// To keep things simple, no balancing is implemented at this phase
-typedef struct NonTerminalNode {
-  NonTerminalPtr nonterm;
-  struct NonTerminalNode* left;
-  struct NonTerminalNode* right;
-} NonTerminalNode, *NonTerminalNodePtr;
-*/
-
-
 static void parse_regex(char *regex);
 static int parse_header(char **regexPtr);
 static void parse_body(char **regexPtr, int nontermIdx);
@@ -106,7 +43,7 @@ static void *parse_operand(char **regexPtr);
 static OperatorType parse_operator(char **regexPtr);
 static void log_expr(Expression* expr);
 
-void parse_regex_spec(FILE *in) {
+int parse_regex_spec(FILE *in, NonTerminalPtr *nontermTable) {
   //log("%ld, %ld, %ld\n", sizeof(char*), sizeof(Expression),
   //    sizeof(NonTerminal));
   // log("%d\n", MAX_NESTED_EXPRS);
@@ -118,6 +55,12 @@ void parse_regex_spec(FILE *in) {
     currentColumn = 0;
     parse_regex(regexSpecLine);
   }
+
+  if (nontermTable != NULL) {
+    *nontermTable = nonterms;  
+  }
+
+  return currentNonterm;
 }
 
 /// Divides a regex into its individual components
@@ -163,6 +106,9 @@ static int parse_header(char **regexPtr) {
   }
 
   int nontermNameSize = *regexPtr - nontermNameStart;
+  assert(nontermNameSize <= MAX_NONTERM_NAME && "Non-terminal name is too"
+         " long!\n");
+
   // memcpy is used instead of strcpy because strcpy stops at '\0' which won't
   // be available in our case
   char nontermName[MAX_NONTERM_NAME];
@@ -186,6 +132,8 @@ static int parse_header(char **regexPtr) {
 
   if (nontermIdx == -1) {
     nontermIdx = currentNonterm++;
+    assert(currentNonterm < MAX_NONTERMS && "Exceeded maximum number"
+           " of non-terminals!\n");
   }
 
   log("Nonterm index: %d\n", nontermIdx);
@@ -237,6 +185,8 @@ static void parse_body(char **regexPtr, int nontermIdx) {
       currentExpr->op2 = NULL;
       currentExpr->op2Type = NOTHING;
 
+      assert(freeExprIdx < MAX_NESTED_EXPRS && "Expression pool is "
+             "out of memory!\n");
       Expression* newExpr = &(exprPool[freeExprIdx]);
       newExpr->type = parse_operator(regexPtr);
       newExpr->op1 = currentExpr;
@@ -249,6 +199,8 @@ static void parse_body(char **regexPtr, int nontermIdx) {
       freeExprIdx++;
     }
 
+    assert(freeExprIdx < MAX_NESTED_EXPRS && "Expression pool is "
+           "out of memory!\n");
     prevExpr = currentExpr;
     currentExpr = prevExpr->op2 = &(exprPool[freeExprIdx]);
     prevExpr->op2Type = NESTED_EXPRESSION;
@@ -312,6 +264,8 @@ static void *parse_operand(char **regexPtr) {
 
     if (opIdx == -1) {
       opIdx = currentNonterm++;
+      assert(currentNonterm < MAX_NONTERMS && "Exceeded maximum number"
+             " of non-terminals!\n");
       memcpy(nonterms[opIdx].name, operandStart, operandNameSize);
       nonterms[opIdx].name[operandNameSize] = '\0';
       nonterms[opIdx].complete = FALSE;
@@ -320,7 +274,8 @@ static void *parse_operand(char **regexPtr) {
 
     return (void*)(&nonterms[opIdx]);
   } else {
-
+    assert(currentTermStart+operandNameSize-termPool <= MAX_TOTAL_TERM_LEN
+           && "Terminal pool is out of memory!\n");
     int size = memcpy2(currentTermStart, operandStart, operandNameSize,
                        '@', "_@|*$", " @|*$");
     currentTermStart[size] = '\0';
@@ -377,7 +332,8 @@ static int memcpy2(char *dest, char *src, int numBytes, char escapeChar,
       // avoid seg faults by not going beyond the end of the given src
       // block of memory
       if (numBytes <= 0) {
-        fatal_error("An escape sequence at the end of a string\n");
+        fatal_error("An incomplete escape sequence at the end of a "
+                    "string\n");
       }
 
       src++;
@@ -417,6 +373,8 @@ static void log_expr(Expression* expr) {
   case LEAF_OPERATOR:
     log("%s", (char*)(expr->op1));
     break;
+  case NOTHING:
+    log("");
   }
 
   switch(expr->type) {
@@ -441,6 +399,8 @@ static void log_expr(Expression* expr) {
   case LEAF_OPERATOR:
     log("%s", (char*)(expr->op2));
     break;
+  case NOTHING:
+    log("");
   }
 
   log(")");

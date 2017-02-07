@@ -4,6 +4,6 @@ set (PROJ_NAME al-farahidi)
 project (${PROJ_NAME} VERSION 0.1.0)
 
 include_directories (include)
-set (SRCS main.c regex.c)
+set (SRCS src/main.c src/regex.c)
 
 add_executable (${PROJ_NAME} ${SRCS})

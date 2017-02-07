@@ -36,7 +36,7 @@ $cond_op := && | @|@|
 
 $literal := $int_literal | $char_literal | $bool_literal
 
-$id := $alpha $alpha_num* $alpha
+$id := $alpha $alpha_num*
 
 $alpha_num := $alpha | $digit
 

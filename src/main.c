@@ -6,10 +6,10 @@
  **************************************************************/
 
 #include <stdio.h>
-#include "include/regex.h"
+#include "../include/regex.h"
 
 int main(int argc, char** argv) {
-  parse_regex_spec(stdin);
+  parse_regex_spec(stdin, NULL);
 
   return 0;
 }
