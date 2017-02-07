@@ -44,10 +44,6 @@ static OperatorType parse_operator(char **regexPtr);
 static void log_expr(Expression* expr);
 
 int parse_regex_spec(FILE *in, NonTerminalPtr *nontermTable) {
-  //log("%ld, %ld, %ld\n", sizeof(char*), sizeof(Expression),
-  //    sizeof(NonTerminal));
-  // log("%d\n", MAX_NESTED_EXPRS);
-
   char regexSpecLine[MAX_REGEX_LEN];
 
   while (fgets(regexSpecLine, MAX_REGEX_LEN, in) != NULL) {
@@ -115,7 +111,6 @@ static int parse_header(char **regexPtr) {
   memcpy(nontermName, nontermNameStart, nontermNameSize);
   nontermName[nontermNameSize] = '\0';
 
-  log("\nLine %d: Found a nonterm: >>%s<<\n", currentLine, nontermName);
   int nontermIdx = -1;
 
   // check if the non-term was encountered before
@@ -136,7 +131,6 @@ static int parse_header(char **regexPtr) {
            " of non-terminals!\n");
   }
 
-  log("Nonterm index: %d\n", nontermIdx);
   strcpy(nonterms[nontermIdx].name, nontermName);
   nonterms[nontermIdx].idx = nontermIdx;
 
@@ -216,8 +210,11 @@ static void parse_body(char **regexPtr, int nontermIdx) {
   freeExprIdx--;
   prevExpr->op2 = NULL;
 
+  log("+++++++++++++++++++++++++\n");
+  log("%s:\n", nonterms[nontermIdx].name);
   log_expr(&(nonterms[nontermIdx].expr));
   log("\n");
+  log("-------------------------\n");
 }
 
 static void *parse_operand(char **regexPtr) {
@@ -280,7 +277,6 @@ static void *parse_operand(char **regexPtr) {
                        '@', "_@|*$", " @|*$");
     currentTermStart[size] = '\0';
     currentTermStart += (operandNameSize + 1);
-    //log("op name: %s\n", (currentTermStart-(operandNameSize+1)));
 
     return currentTermStart - (operandNameSize+1);
   }
