@@ -13,4 +13,7 @@
 #define TRUE  1
 #define FALSE 0
 
+typedef int PoolOffset;
+typedef int bool;
+
 #endif
