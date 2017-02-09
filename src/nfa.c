@@ -6,7 +6,7 @@
 
 // Since for each regex (or a combination of 2 regexs), we need a constant
 // number of new epsilon transitions (specifically, 1 for concatination
-// , 4 for or, and 4 for Kleene), the maximum total number in the final
+// , 4 for or, and 4 for Closure), the maximum total number in the final
 // NFA will be c * (MAX_NESTED_EXPRS + MAX_NONTERMS) for some constant
 // c < 5 (see regex.h for a definition of MAX_NESTED_EXPRS and MAX_NONTERMS).
 // I use a constant factor of 10 here because in regex spec a reserved
@@ -66,6 +66,7 @@ static PoolOffset build_single_symbol_nfa(char symbol);
 static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
 static void update_state_type(PoolOffset stateIdx, NFAStateType newType);
 static void or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
+static void closure_nfa(PoolOffset nfaIdx);
 
 #if DEBUG
 static void print_nfa(PoolOffset nfaIdx);
@@ -76,11 +77,51 @@ void build_nfa(NonTerminalPtr nontermTable, int nontermTableSize) {
   PoolOffset a = build_single_symbol_nfa('a');
   PoolOffset b = build_single_symbol_nfa('b');
   PoolOffset c = build_single_symbol_nfa('c');
-  //concat_nfa(a, b);
-  //concat_nfa(c, a);
   or_nfa(a, b);
   concat_nfa(a, c);
+  closure_nfa(a);
   print_nfa(a);
+}
+
+/// Build the NFA for a single symbol in the alphabet
+///
+///        OUTPUT
+///    ---  sym   ===
+///  >| a | ---> | b |
+///    ---        ===
+static PoolOffset build_single_symbol_nfa(char symbol) {
+  PoolOffset nfaIdx = new_nfa();
+  NFA nfa = nfaPool[nfaIdx];
+  nfaStatesPool[nfa.start].edges[0] = new_edge(nfa.accepting, symbol);
+  nfaStatesPool[nfa.start].numEdges++;
+  return nfaIdx;
+}
+
+/// Concatinates nfa2 to nfa1
+///
+///         nfa1      INPUTS      nfa2
+///    ---  sym   ===        ---  sym   ===
+///  >| a | ---> | b |     >| c | ---> | d |
+///    ---        ===        ---        ===
+///
+///                   OUTPUT
+///                    nfa1
+///    ---  sym   ---  eps   ---  sym   ===
+///  >| a | ---> | b | ---> | c | ---> | d |
+///    ---        ---        ---        ===
+// TODO nfa2 becomes unsed storage after this, reuse that memory
+// Check: https://github.com/KareemErgawy/al-farahidi/issues/2
+static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
+  assert(nfa1Idx != nfa2Idx && "Trying to concat an NFA to itself!\n");
+  NFAPtr nfa1 = nfaPool + nfa1Idx;
+  NFAPtr nfa2 = nfaPool + nfa2Idx;
+  NFAStatePtr nfa1Accepting = nfaStatesPool + nfa1->accepting;
+  nfa1Accepting->type = INTERNAL;
+  nfa1Accepting->edges[nfa1Accepting->numEdges] = new_edge(nfa2->start,
+                                                           (char)EPSILON);
+  nfa1Accepting->numEdges++;
+  nfa1->accepting = nfa2->accepting;
+  update_state_type(nfa2->start, INTERNAL);
 }
 
 /// OR nfa1 and nfa2 into nfa1
@@ -136,54 +177,57 @@ static void or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
   nfa2Accepting->numEdges++;
 
   // Update nfa1 with the new start and accepting states
-  nfaPool[nfa1Idx].start = newStartIdx;
-  nfaPool[nfa1Idx].accepting = newAcceptingIdx;
+  nfa1->start = newStartIdx;
+  nfa1->accepting = newAcceptingIdx;
 }
 
-static void update_state_type(PoolOffset stateIdx, NFAStateType newType) {
-  NFAStatePtr state = nfaStatesPool + stateIdx;
-  state->type = newType;
-}
+/// Build the NFA for r* for some regular expresion r expressed by the
+/// argument NFA
+///
+///                  INPUT
+///              ---  sym   ===
+///            >| a | ---> | b |
+///              ---        ===
+///
+///                  OUTPUT
+///                    eps
+///              ---------------
+///             |               |
+///    ---  eps |   ---  sym   ---  eps   ===
+///  >| c | -----> | a | ---> | c | ---> | d |
+///    ---          ---        ---   |    ===
+///     |                            |
+///      ----------------------------
+///                    eps
+static void closure_nfa(PoolOffset nfaIdx) {
+  PoolOffset newStartIdx = new_start_state();
+  NFAStatePtr newStart = nfaStatesPool + newStartIdx;
+  PoolOffset newAcceptingIdx = new_accepting_state();
 
-/// Concatinates nfa2 to nfa1
-///
-///         nfa1      INPUTS      nfa2
-///    ---  sym   ===        ---  sym   ===
-///  >| a | ---> | b |     >| c | ---> | d |
-///    ---        ===        ---        ===
-///
-///                   OUTPUT
-///                    nfa1
-///    ---  sym   ---  eps   ---  sym   ===
-///  >| a | ---> | b | ---> | c | ---> | d |
-///    ---        ---        ---        ===
-// TODO nfa2 becomes unsed storage after this, reuse that memory
-// Check: https://github.com/KareemErgawy/al-farahidi/issues/2
-static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
-  assert(nfa1Idx != nfa2Idx && "Trying to concat an NFA to itself!\n");
-  NFAPtr nfa1 = nfaPool + nfa1Idx;
-  NFAPtr nfa2 = nfaPool + nfa2Idx;
-  NFAStatePtr nfa1Accepting = nfaStatesPool + nfa1->accepting;
-  nfa1Accepting->type = INTERNAL;
-  nfa1Accepting->edges[nfa1Accepting->numEdges] = new_edge(nfa2->start,
-                                                           (char)EPSILON);
-  nfa1Accepting->numEdges++;
-  nfa1->accepting = nfa2->accepting;
-  update_state_type(nfa2->start, INTERNAL);
-}
+  NFAPtr nfa = nfaPool + nfaIdx;
+  PoolOffset nfaStartIdx = nfa->start;
+  PoolOffset nfaAcceptingIdx = nfa->accepting;
+  NFAStatePtr nfaAccepting = nfaStatesPool + nfaAcceptingIdx;
 
-/// Build the NFA for a single symbol in the alphabet
-///
-///        OUTPUT
-///    ---  sym   ===
-///  >| a | ---> | b |
-///    ---        ===
-static PoolOffset build_single_symbol_nfa(char symbol) {
-  PoolOffset nfaIdx = new_nfa();
-  NFA nfa = nfaPool[nfaIdx];
-  nfaStatesPool[nfa.start].edges[0] = new_edge(nfa.accepting, symbol);
-  nfaStatesPool[nfa.start].numEdges++;
-  return nfaIdx;
+  // Update old start and accepting to be internal states
+  update_state_type(nfaStartIdx, INTERNAL);
+  update_state_type(nfaAcceptingIdx, INTERNAL);
+
+  // Add 2 epsilon transitions from new start to old start and new
+  // accepting
+  newStart->edges[0] = new_edge(nfaStartIdx, EPSILON);
+  newStart->edges[1] = new_edge(newAcceptingIdx, EPSILON);
+  newStart->numEdges = 2;
+
+  // Add 2 epsilon transitions from old accepting to old start and new
+  // accepting states
+  nfaAccepting->edges[nfaAccepting->numEdges++] =
+    new_edge(nfaStartIdx, EPSILON);
+  nfaAccepting->edges[nfaAccepting->numEdges++] =
+    new_edge(newAcceptingIdx, EPSILON);
+
+  nfa->start = newStartIdx;
+  nfa->accepting = newAcceptingIdx;
 }
 
 /// Gets a free state from the pool and returns its index
@@ -217,6 +261,11 @@ static PoolOffset new_nfa() {
   nfaPool[currentNFA].start = new_start_state();
   nfaPool[currentNFA].accepting = new_accepting_state();
   return currentNFA++;
+}
+
+static void update_state_type(PoolOffset stateIdx, NFAStateType newType) {
+  NFAStatePtr state = nfaStatesPool + stateIdx;
+  state->type = newType;
 }
 
 #if DEBUG
