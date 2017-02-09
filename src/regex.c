@@ -205,11 +205,11 @@ static void parse_body(char **regexPtr, int nontermIdx) {
   freeExprIdx--;
   prevExpr->op2 = NULL;
 
-  log("+++++++++++++++++++++++++\n");
-  log("%s:\n", nonterms[nontermIdx].name);
-  log_expr(&(nonterms[nontermIdx].expr));
-  log("\n");
-  log("-------------------------\n");
+  /* log("+++++++++++++++++++++++++\n"); */
+  /* log("%s:\n", nonterms[nontermIdx].name); */
+  /* log_expr(&(nonterms[nontermIdx].expr)); */
+  /* log("\n"); */
+  /* log("-------------------------\n"); */
 }
 
 static void *parse_operand(char **regexPtr) {

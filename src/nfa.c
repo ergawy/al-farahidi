@@ -67,6 +67,7 @@ static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
 static void update_state_type(PoolOffset stateIdx, NFAStateType newType);
 static void or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
 static void closure_nfa(PoolOffset nfaIdx);
+static void print_nfa_graphviz(PoolOffset nfaIdx);
 
 #if DEBUG
 static void print_nfa(PoolOffset nfaIdx);
@@ -80,7 +81,7 @@ void build_nfa(NonTerminalPtr nontermTable, int nontermTableSize) {
   or_nfa(a, b);
   concat_nfa(a, c);
   closure_nfa(a);
-  print_nfa(a);
+  print_nfa_graphviz(a);
 }
 
 /// Build the NFA for a single symbol in the alphabet
@@ -309,3 +310,31 @@ static void print_state(PoolOffset stateIdx) {
   /* state->visited = FALSE; */
 }
 #endif
+
+static void print_state_graphviz(PoolOffset stateIdx) {
+  NFAStatePtr state = nfaStatesPool + stateIdx;
+
+  if (state->visited) {
+    return;
+  }
+
+  state->visited = TRUE;
+
+  for (int i=0 ; i<state->numEdges ; i++) {
+    NFAEdge edge = nfaEdgePool[state->edges[i]];
+    log ("\tS%d -> S%d\n", stateIdx, edge.target);
+  }
+
+  for (int i=0 ; i<state->numEdges ; i++) {
+    NFAEdge edge = nfaEdgePool[state->edges[i]];
+    print_state_graphviz(edge.target);
+  }
+
+  /* state->visited = FALSE; */ 
+}
+
+static void print_nfa_graphviz(PoolOffset nfaIdx) {
+  log("digraph NFA {\n");
+  print_state_graphviz(nfaPool[nfaIdx].start);
+  log("}\n");
+}
