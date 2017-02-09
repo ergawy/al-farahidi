@@ -79,6 +79,7 @@ void build_nfa(NonTerminalPtr nontermTable, int nontermTableSize) {
   //concat_nfa(a, b);
   //concat_nfa(c, a);
   or_nfa(a, b);
+  concat_nfa(a, c);
   print_nfa(a);
 }
 
@@ -168,6 +169,7 @@ static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
                                                            (char)EPSILON);
   nfa1Accepting->numEdges++;
   nfa1->accepting = nfa2->accepting;
+  update_state_type(nfa2->start, INTERNAL);
 }
 
 /// Build the NFA for a single symbol in the alphabet
