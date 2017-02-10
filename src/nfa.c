@@ -76,15 +76,16 @@ static void print_state(PoolOffset stateIdx);
 #endif
 
 void build_nfa(NonTerminalPtr nontermTable, int nontermTableSize) {
-  /* PoolOffset a = build_single_symbol_nfa('a'); */
-  /* PoolOffset b = build_single_symbol_nfa('b'); */
-  /* PoolOffset c = build_single_symbol_nfa('c'); */
-  /* build_or_nfa(a, b); */
-  /* build_concat_nfa(a, c); */
-  /* build_closure_nfa(a); */
-  /* print_nfa_graphviz(a); */
-  PoolOffset a = build_terminal_nfa("test");
-  print_nfa_graphviz(a);
+  PoolOffset a = build_single_symbol_nfa('a');
+  PoolOffset b = build_single_symbol_nfa('b');
+  PoolOffset c = build_single_symbol_nfa('c');
+  build_or_nfa(a, b);
+  build_concat_nfa(a, c);
+  build_closure_nfa(a);
+  PoolOffset d = build_terminal_nfa("test");
+  build_or_nfa(d, a);
+  build_closure_nfa(d);
+  print_nfa_graphviz(d);
 }
 
 /// Build the NFA for a single symbol in the alphabet
@@ -352,9 +353,25 @@ static void print_state_graphviz(PoolOffset stateIdx) {
 
   state->visited = TRUE;
 
+  switch (state->type) {
+  case START:
+    log("\tS%d [shape=box,style=filled,color=\".0 .7 .3\"];\n", stateIdx);
+    break;
+  case INTERNAL:
+    break;
+  case ACCEPTING:
+    log("\tS%d [shape=box,style=filled,color=\".7 .0 .3\"];\n", stateIdx);
+    break;
+  }
+
   for (int i=0 ; i<state->numEdges ; i++) {
     NFAEdge edge = nfaEdgePool[state->edges[i]];
-    log ("\tS%d -> S%d\n", stateIdx, edge.target);
+    if (edge.symbol == '\0') {
+      log("\tS%d -> S%d [label=\"eps\"];\n", stateIdx, edge.target);
+    } else {
+      log("\tS%d -> S%d [label=\"%c\"];\n", stateIdx, edge.target,
+          edge.symbol);
+    }
   }
 
   for (int i=0 ; i<state->numEdges ; i++) {
