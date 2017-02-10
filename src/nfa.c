@@ -63,11 +63,12 @@ static PoolOffset new_accepting_state();
 static PoolOffset new_edge(PoolOffset target, char symbol);
 static PoolOffset new_nfa();
 static PoolOffset build_single_symbol_nfa(char symbol);
-static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
-static void update_state_type(PoolOffset stateIdx, NFAStateType newType);
-static void or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
-static void closure_nfa(PoolOffset nfaIdx);
+static void build_concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
+static void build_or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
+static void build_closure_nfa(PoolOffset nfaIdx);
+static PoolOffset build_terminal_nfa(char *termianl);
 static void print_nfa_graphviz(PoolOffset nfaIdx);
+static void update_state_type(PoolOffset stateIdx, NFAStateType newType);
 
 #if DEBUG
 static void print_nfa(PoolOffset nfaIdx);
@@ -75,12 +76,14 @@ static void print_state(PoolOffset stateIdx);
 #endif
 
 void build_nfa(NonTerminalPtr nontermTable, int nontermTableSize) {
-  PoolOffset a = build_single_symbol_nfa('a');
-  PoolOffset b = build_single_symbol_nfa('b');
-  PoolOffset c = build_single_symbol_nfa('c');
-  or_nfa(a, b);
-  concat_nfa(a, c);
-  closure_nfa(a);
+  /* PoolOffset a = build_single_symbol_nfa('a'); */
+  /* PoolOffset b = build_single_symbol_nfa('b'); */
+  /* PoolOffset c = build_single_symbol_nfa('c'); */
+  /* build_or_nfa(a, b); */
+  /* build_concat_nfa(a, c); */
+  /* build_closure_nfa(a); */
+  /* print_nfa_graphviz(a); */
+  PoolOffset a = build_terminal_nfa("test");
   print_nfa_graphviz(a);
 }
 
@@ -112,7 +115,7 @@ static PoolOffset build_single_symbol_nfa(char symbol) {
 ///    ---        ---        ---        ===
 // TODO nfa2 becomes unsed storage after this, reuse that memory
 // Check: https://github.com/KareemErgawy/al-farahidi/issues/2
-static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
+static void build_concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
   assert(nfa1Idx != nfa2Idx && "Trying to concat an NFA to itself!\n");
   NFAPtr nfa1 = nfaPool + nfa1Idx;
   NFAPtr nfa2 = nfaPool + nfa2Idx;
@@ -143,7 +146,7 @@ static void concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
 ///         |     ---  sym   ---     |
 ///         ---> | c | ---> | d | ---
 ///         eps   ---        ---  eps
-static void or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
+static void build_or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
   assert(nfa1Idx != nfa2Idx && "Trying to OR an NFA to itself!\n");
   PoolOffset newStartIdx = new_start_state();
   NFAStatePtr newStart = nfaStatesPool + newStartIdx;
@@ -200,7 +203,7 @@ static void or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
 ///     |                            |
 ///      ----------------------------
 ///                    eps
-static void closure_nfa(PoolOffset nfaIdx) {
+static void build_closure_nfa(PoolOffset nfaIdx) {
   PoolOffset newStartIdx = new_start_state();
   NFAStatePtr newStart = nfaStatesPool + newStartIdx;
   PoolOffset newAcceptingIdx = new_accepting_state();
@@ -229,6 +232,35 @@ static void closure_nfa(PoolOffset nfaIdx) {
 
   nfa->start = newStartIdx;
   nfa->accepting = newAcceptingIdx;
+}
+
+/// Build a chain NFA out of a mutli-characher terminal. Every symbol is
+/// concatenated to the next one.
+static PoolOffset build_terminal_nfa(char *terminal) {
+  size_t len = strlen(terminal);
+  assert(len > 0 && "Trying to build an NFA for an empty terminal");
+  PoolOffset startIdx = new_start_state();
+  PoolOffset prevStateIdx = startIdx;
+
+  while(*terminal != '\0') {
+    NFAStatePtr prevState = nfaStatesPool + prevStateIdx;
+    PoolOffset currentStateIdx = new_state(INTERNAL);
+
+    assert(prevState->numEdges == 0 && "This state should have 0 edges\n");
+    prevState->edges[0] = new_edge(currentStateIdx, *terminal);
+    prevState->numEdges = 1;
+
+    prevStateIdx = currentStateIdx;
+    terminal++;
+  }
+
+  update_state_type(prevStateIdx, ACCEPTING);
+
+  PoolOffset nfaIdx = new_nfa();
+  NFAPtr nfa = nfaPool + nfaIdx;
+  nfa->start = startIdx;
+  nfa->accepting = prevStateIdx;
+  return nfaIdx;
 }
 
 /// Gets a free state from the pool and returns its index
