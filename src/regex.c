@@ -34,9 +34,9 @@ static int memcpy2(char *dest, char *src, int numBytes, char escapeChar,
 static void parse_regex(char *regex);
 static int parse_header(char **regexPtr);
 static void parse_body(char **regexPtr, int nontermIdx);
-static void *parse_operand(char **regexPtr);
+static OperandType parse_operand(char **regexPtr, PoolOffset *res);
 static OperatorType parse_operator(char **regexPtr);
-static void log_expr(Expression* expr);
+static void log_expr(PoolOffset exprIdx);
 
 int parse_regex_spec(FILE *in, NonTerminalPtr *nontermTable) {
   char regexSpecLine[MAX_REGEX_LEN];
@@ -151,15 +151,21 @@ static int parse_header(char **regexPtr) {
 }
 
 static void parse_body(char **regexPtr, int nontermIdx) {
-  void *op = NULL;
-  Expression *currentExpr = &(nonterms[nontermIdx].expr);
+  PoolOffset op = -1;
+  assert(freeExprIdx < MAX_NESTED_EXPRS && "Expression pool is "
+         "out of memory!\n");
+  Expression *currentExpr = exprPool + freeExprIdx;
+  PoolOffset currentExprIdx = freeExprIdx;
+  nonterms[nontermIdx].expr = freeExprIdx;
+  freeExprIdx++;
   Expression *prevExpr = currentExpr;
+  OperandType opType = NOTHING;
 
-  while ((op = parse_operand(regexPtr)) != NULL) {
+  while ((opType = parse_operand(regexPtr, &op)) != NOTHING) {
     OperatorType opCode = parse_operator(regexPtr);
     currentExpr->type = opCode;
     currentExpr->op1 = op;
-    currentExpr->op1Type = LEAF_OPERATOR;
+    currentExpr->op1Type = opType;
 
     // found a suffix operator
     // parse the next operator
@@ -171,17 +177,17 @@ static void parse_body(char **regexPtr, int nontermIdx) {
     // example: (a b* ...) ==> (a & (b * (...))) will be replaced with
     // (a & ((b*) & (...)))
     if (opCode == ZERO_OR_MORE) {
-      currentExpr->op2 = NULL;
+      currentExpr->op2 = -1;
       currentExpr->op2Type = NOTHING;
 
       assert(freeExprIdx < MAX_NESTED_EXPRS && "Expression pool is "
              "out of memory!\n");
-      Expression* newExpr = &(exprPool[freeExprIdx]);
+      Expression* newExpr = exprPool + freeExprIdx;
       newExpr->type = parse_operator(regexPtr);
-      newExpr->op1 = currentExpr;
+      newExpr->op1 = currentExprIdx;
       newExpr->op1Type = NESTED_EXPRESSION;
 
-      prevExpr->op2 = newExpr;
+      prevExpr->op2 = freeExprIdx;
       prevExpr->op2Type = NESTED_EXPRESSION;
 
       currentExpr = newExpr;
@@ -191,8 +197,10 @@ static void parse_body(char **regexPtr, int nontermIdx) {
     assert(freeExprIdx < MAX_NESTED_EXPRS && "Expression pool is "
            "out of memory!\n");
     prevExpr = currentExpr;
-    currentExpr = prevExpr->op2 = &(exprPool[freeExprIdx]);
+    prevExpr->op2 = freeExprIdx;
     prevExpr->op2Type = NESTED_EXPRESSION;
+    currentExpr = exprPool + freeExprIdx;
+    currentExprIdx = freeExprIdx;
     freeExprIdx++;
   }
 
@@ -203,16 +211,17 @@ static void parse_body(char **regexPtr, int nontermIdx) {
   // return it back and delete it from the 2nd operand of the last
   // actual expression (should be a no op or unary expression).
   freeExprIdx--;
-  prevExpr->op2 = NULL;
+  prevExpr->op2 = -1;
+  prevExpr->op2Type = NOTHING;
 
-  /* log("+++++++++++++++++++++++++\n"); */
-  /* log("%s:\n", nonterms[nontermIdx].name); */
-  /* log_expr(&(nonterms[nontermIdx].expr)); */
-  /* log("\n"); */
-  /* log("-------------------------\n"); */
+  log("+++++++++++++++++++++++++\n");
+  log("%s:\n", nonterms[nontermIdx].name);
+  log_expr(nonterms[nontermIdx].expr);
+  log("\n");
+  log("-------------------------\n");
 }
 
-static void *parse_operand(char **regexPtr) {
+static OperandType parse_operand(char **regexPtr, PoolOffset *res) {
   while (isspace(**regexPtr) && **regexPtr != '\n') {
     moveRegexPtr(*regexPtr);
   }
@@ -220,7 +229,7 @@ static void *parse_operand(char **regexPtr) {
   // last operand is (supposidly) parsed already
   // if there was a problem it should have been caught in parse_regex
   if (**regexPtr == '\0' || **regexPtr == '\n') {
-    return NULL;
+    return NOTHING;
   }
 
   if (**regexPtr == '|' || **regexPtr == '*') {
@@ -264,7 +273,8 @@ static void *parse_operand(char **regexPtr) {
       nonterms[opIdx].idx = opIdx;
     }
 
-    return (void*)(&nonterms[opIdx]);
+    *res = opIdx;
+    return NON_TERMINAL;
   } else {
     assert(currentTermStart+operandNameSize-termPool <= MAX_TOTAL_TERM_LEN
            && "Terminal pool is out of memory!\n");
@@ -273,7 +283,8 @@ static void *parse_operand(char **regexPtr) {
     currentTermStart[size] = '\0';
     currentTermStart += (operandNameSize + 1);
 
-    return currentTermStart - (operandNameSize+1);
+    *res = currentTermStart - (operandNameSize+1) - termPool;
+    return TERMINAL;
   }
 }
 
@@ -350,8 +361,10 @@ static int memcpy2(char *dest, char *src, int numBytes, char escapeChar,
   return copied;
 }
 
-static void log_expr(Expression* expr) {
-  if (expr == NULL) {
+static void log_expr(PoolOffset exprIdx) {
+  ExpressionPtr expr = exprPool + exprIdx;
+
+  if (exprIdx == -1) {
     return;
   }
 
@@ -361,11 +374,15 @@ static void log_expr(Expression* expr) {
   case NESTED_EXPRESSION:
     log_expr(expr->op1);
     break;
-  case LEAF_OPERATOR:
-    log("%s", (char*)(expr->op1));
+  case NON_TERMINAL:
+    log("%s", nonterms[expr->op1].name);
+    break;
+  case TERMINAL:
+    log("%s", (termPool + expr->op1));
     break;
   case NOTHING:
     log("");
+    break;
   }
 
   switch(expr->type) {
@@ -387,11 +404,15 @@ static void log_expr(Expression* expr) {
   case NESTED_EXPRESSION:
     log_expr(expr->op2);
     break;
-  case LEAF_OPERATOR:
-    log("%s", (char*)(expr->op2));
+  case NON_TERMINAL:
+    log("%s", nonterms[expr->op2].name);
+    break;
+  case TERMINAL:
+    log("%s", (termPool + expr->op2));
     break;
   case NOTHING:
     log("");
+    break;
   }
 
   log(")");

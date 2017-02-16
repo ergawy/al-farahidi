@@ -20,20 +20,21 @@ typedef enum {
 
 typedef enum {
   NESTED_EXPRESSION,
-  LEAF_OPERATOR,
+  NON_TERMINAL,
+  TERMINAL,
   NOTHING
 } OperandType;
 
 typedef struct Expression {
   // each operand can be either a terminal (char[]), a non-terminal
   // (an instance of NonTerminal struct), or even a nested expression
-  void *op1;
-  void *op2;
+  PoolOffset op1;
+  PoolOffset op2;
 
   OperandType op1Type;
   OperandType op2Type;
   OperatorType type;
-} Expression;
+} Expression, *ExpressionPtr;
 
 // (1) typedef to avoid having to use "struct NonTerminal" everywhere
 // a declaration is needed
@@ -44,7 +45,7 @@ typedef struct Expression {
 typedef struct NonTerminal {
   char name[MAX_NONTERM_NAME];
   // the expression defining the non-terminal
-  struct Expression expr;
+  PoolOffset expr;
   // this will be false when a non-terminal is used in the definition of another one
   // before its definition is actually parsed
   _Bool complete;
