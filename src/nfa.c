@@ -57,6 +57,15 @@ static PoolOffset currentNFAEdge = 0;
 static NFA nfaPool[MAX_NFAS];
 static PoolOffset currentNFA = 0;
 
+static NonTerminalPtr nontermTable;
+static int nontermTableSize;
+static ExpressionPtr exprTable;
+static char *termTable;
+
+// Maps a non-termianl index to the index of its corresponding NFA or -1
+// if the NFA is not yet created
+static PoolOffset nontermToNFAMap[MAX_NFAS];
+
 static PoolOffset new_start_state();
 static PoolOffset new_state(NFAStateType type);
 static PoolOffset new_accepting_state();
@@ -66,7 +75,11 @@ static PoolOffset build_single_symbol_nfa(char symbol);
 static void build_concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
 static void build_or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx);
 static void build_closure_nfa(PoolOffset nfaIdx);
+
 static PoolOffset build_terminal_nfa(char *termianl);
+static PoolOffset build_regex_expr_nfa(PoolOffset exprIdx);
+static PoolOffset build_non_terminal_nfa(PoolOffset nontermIdx);
+
 static void print_nfa_graphviz(PoolOffset nfaIdx);
 static void update_state_type(PoolOffset stateIdx, NFAStateType newType);
 
@@ -75,17 +88,27 @@ static void print_nfa(PoolOffset nfaIdx);
 static void print_state(PoolOffset stateIdx);
 #endif
 
-void build_nfa(NonTerminalPtr nontermTable, int nontermTableSize) {
-  PoolOffset a = build_single_symbol_nfa('a');
-  PoolOffset b = build_single_symbol_nfa('b');
-  PoolOffset c = build_single_symbol_nfa('c');
-  build_or_nfa(a, b);
-  build_concat_nfa(a, c);
-  build_closure_nfa(a);
-  PoolOffset d = build_terminal_nfa("test");
-  build_or_nfa(d, a);
-  build_closure_nfa(d);
-  print_nfa_graphviz(d);
+void build_nfa(NonTerminalPtr _nontermTable, int _nontermTableSize,
+               ExpressionPtr _exprTable, char *_termTable) {
+  nontermTable = _nontermTable;
+  nontermTableSize = _nontermTableSize;
+  exprTable = _exprTable;
+  termTable = _termTable;
+
+  // -1 is all 1's in binary rep, hence setting every byte of a 4-byte
+  // word to -1 is the same as setting the entire word to -1. Hence, use
+  // memset instead of looping.
+  memset(nontermToNFAMap, -1, MAX_NFAS*sizeof(PoolOffset));
+
+  for (int i=0 ; i<nontermTableSize ; i++) {
+    build_non_terminal_nfa(i);
+  }
+
+  for (int i=1 ; i<nontermTableSize ; i++) {
+    build_or_nfa(nontermToNFAMap[0], nontermToNFAMap[i]);
+  }
+
+  print_nfa_graphviz(nontermToNFAMap[0]);
 }
 
 /// Build the NFA for a single symbol in the alphabet
@@ -235,6 +258,53 @@ static void build_closure_nfa(PoolOffset nfaIdx) {
   nfa->accepting = newAcceptingIdx;
 }
 
+static PoolOffset build_expr_op_nfa(PoolOffset operandOffset,
+                                    OperandType operandType) {
+  switch (operandType) {
+  case NESTED_EXPRESSION:
+    return build_regex_expr_nfa(operandOffset);
+  case NON_TERMINAL:
+    return build_non_terminal_nfa(operandOffset);
+  case TERMINAL:
+    return build_terminal_nfa(termTable + operandOffset);
+  case NOTHING:
+    assert(FALSE && "Shouldn't have reached this!\n");
+  }
+}
+
+static PoolOffset build_non_terminal_nfa(PoolOffset nontermIdx) {
+  nontermToNFAMap[nontermIdx] =
+    build_regex_expr_nfa(nontermTable[nontermIdx].expr);
+
+  return nontermToNFAMap[nontermIdx];
+}
+
+static PoolOffset build_regex_expr_nfa(PoolOffset exprIdx) {
+  assert(exprIdx != -1 && "Invalid expression!\n");
+
+  ExpressionPtr expr = exprTable + exprIdx;
+  PoolOffset op1NFA = build_expr_op_nfa(expr->op1, expr->op1Type);
+  PoolOffset op2NFA;
+
+  switch (expr->type) {
+  case NO_OP:
+    break;
+  case OR:
+    op2NFA = build_expr_op_nfa(expr->op2, expr->op2Type);
+    build_or_nfa(op1NFA, op2NFA);
+    break;
+  case AND:
+    op2NFA = build_expr_op_nfa(expr->op2, expr->op2Type);
+    build_concat_nfa(op1NFA, op2NFA);
+    break;
+  case ZERO_OR_MORE:
+    build_closure_nfa(op1NFA);
+    break;
+  }
+
+  return op1NFA;
+}
+
 /// Build a chain NFA out of a mutli-characher terminal. Every symbol is
 /// concatenated to the next one.
 static PoolOffset build_terminal_nfa(char *terminal) {
@@ -355,12 +425,12 @@ static void print_state_graphviz(PoolOffset stateIdx) {
 
   switch (state->type) {
   case START:
-    log("\tS%d [shape=box,style=filled,color=\".0 .7 .3\"];\n", stateIdx);
+    log("\tS%d [shape=box,style=filled,color=green];\n", stateIdx);
     break;
   case INTERNAL:
     break;
   case ACCEPTING:
-    log("\tS%d [shape=box,style=filled,color=\".7 .0 .3\"];\n", stateIdx);
+    log("\tS%d [shape=box,style=filled,color=red];\n", stateIdx);
     break;
   }
 

@@ -69,6 +69,7 @@ struct NonTerminalNode* right;
 ///     allocated storage that stores the non-terminals
 ///   * Actually returns an int value containing the total numer of
 ///     non-terminals in the nontermTable
-int parse_regex_spec(FILE* in, NonTerminalPtr* nontermTable);
+int parse_regex_spec(FILE* in, NonTerminalPtr* nontermTable,
+                     ExpressionPtr *exprTable, char **termTale);
 
 #endif

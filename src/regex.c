@@ -38,7 +38,8 @@ static OperandType parse_operand(char **regexPtr, PoolOffset *res);
 static OperatorType parse_operator(char **regexPtr);
 static void log_expr(PoolOffset exprIdx);
 
-int parse_regex_spec(FILE *in, NonTerminalPtr *nontermTable) {
+int parse_regex_spec(FILE *in, NonTerminalPtr *nontermTable,
+                     ExpressionPtr *exprTable, char **termTable) {
   char regexSpecLine[MAX_REGEX_LEN];
 
   while (fgets(regexSpecLine, MAX_REGEX_LEN, in) != NULL) {
@@ -48,7 +49,9 @@ int parse_regex_spec(FILE *in, NonTerminalPtr *nontermTable) {
   }
 
   if (nontermTable != NULL) {
-    *nontermTable = nonterms;  
+    *nontermTable = nonterms;
+    *exprTable = exprPool;
+    *termTable = termPool;
   }
 
   return currentNonterm;
@@ -214,11 +217,11 @@ static void parse_body(char **regexPtr, int nontermIdx) {
   prevExpr->op2 = -1;
   prevExpr->op2Type = NOTHING;
 
-  log("+++++++++++++++++++++++++\n");
-  log("%s:\n", nonterms[nontermIdx].name);
-  log_expr(nonterms[nontermIdx].expr);
-  log("\n");
-  log("-------------------------\n");
+/*   log("+++++++++++++++++++++++++\n"); */
+/*   log("%s:\n", nonterms[nontermIdx].name); */
+/*   log_expr(nonterms[nontermIdx].expr); */
+/*   log("\n"); */
+/*   log("-------------------------\n"); */
 }
 
 static OperandType parse_operand(char **regexPtr, PoolOffset *res) {
@@ -370,7 +373,7 @@ static void log_expr(PoolOffset exprIdx) {
 
   log("(");
 
-  switch(expr->op1Type) {
+  switch (expr->op1Type) {
   case NESTED_EXPRESSION:
     log_expr(expr->op1);
     break;
@@ -385,7 +388,7 @@ static void log_expr(PoolOffset exprIdx) {
     break;
   }
 
-  switch(expr->type) {
+  switch (expr->type) {
   case NO_OP:
     log("");
     break;
@@ -400,7 +403,7 @@ static void log_expr(PoolOffset exprIdx) {
     break;
   }
 
-  switch(expr->op2Type) {
+  switch (expr->op2Type) {
   case NESTED_EXPRESSION:
     log_expr(expr->op2);
     break;

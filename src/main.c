@@ -11,8 +11,12 @@
 
 int main(int argc, char** argv) {
   NonTerminalPtr nontermTable = NULL;
-  int nontermTableSize = parse_regex_spec(stdin, &nontermTable);
-  build_nfa(nontermTable, nontermTableSize);
+  ExpressionPtr exprTable = NULL;
+  char *termTable = NULL;
+
+  int nontermTableSize = parse_regex_spec(stdin, &nontermTable,
+                                          &exprTable, &termTable);
+  build_nfa(nontermTable, nontermTableSize, exprTable, termTable);
 
   return 0;
 }
