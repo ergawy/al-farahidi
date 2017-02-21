@@ -104,11 +104,29 @@ void build_nfa(NonTerminalPtr _nontermTable, int _nontermTableSize,
     build_non_terminal_nfa(i);
   }
 
-  for (int i=1 ; i<nontermTableSize ; i++) {
-    build_or_nfa(nontermToNFAMap[0], nontermToNFAMap[i]);
+  /* for (int i=1 ; i<nontermTableSize ; i++) { */
+  /*   build_or_nfa(nontermToNFAMap[0], nontermToNFAMap[i]); */
+  /* } */
+
+  /* print_nfa_graphviz(nontermToNFAMap[2]); */
+
+  PoolOffset globalStartIdx = new_start_state();
+  NFAStatePtr globalStart = nfaStatesPool + globalStartIdx;
+  PoolOffset globalNFAIdx = new_nfa();
+  NFAPtr globalNFA = nfaPool + globalNFAIdx;
+  globalNFA->start = globalStartIdx;
+
+  for (int i=0 ; i<nontermTableSize ; i++) {
+    PoolOffset nfaIdx = nontermToNFAMap[i];
+    PoolOffset nfaStartIdx = nfaPool[nfaIdx].start;
+    NFAStatePtr nfaStart = nfaStatesPool + nfaStartIdx;
+    nfaStart->type = INTERNAL;
+    globalStart->edges[globalStart->numEdges] =
+      new_edge(nfaStartIdx, EPSILON);
+    ++(globalStart->numEdges);
   }
 
-  print_nfa_graphviz(nontermToNFAMap[0]);
+  print_nfa_graphviz(globalNFAIdx);
 }
 
 /// Build the NFA for a single symbol in the alphabet
