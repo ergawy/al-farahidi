@@ -45,7 +45,8 @@ typedef struct NFAEdge {
 
 typedef struct NFA {
   PoolOffset start;
-  PoolOffset accepting;
+  PoolOffset accepting[MAX_EDGES_PER_NODE];
+  int numAccepting; 
 } NFA, *NFAPtr;
 
 static NFAState nfaStatesPool[MAX_NFA_STATES];
@@ -119,13 +120,19 @@ void build_nfa(NonTerminalPtr _nontermTable, int _nontermTableSize,
   for (int i=0 ; i<nontermTableSize ; i++) {
     PoolOffset nfaIdx = nontermToNFAMap[i];
     PoolOffset nfaStartIdx = nfaPool[nfaIdx].start;
+    PoolOffset nfaAcceptingIdx = nfaPool[nfaIdx].accepting[0];
     NFAStatePtr nfaStart = nfaStatesPool + nfaStartIdx;
     nfaStart->type = INTERNAL;
     globalStart->edges[globalStart->numEdges] =
       new_edge(nfaStartIdx, EPSILON);
     ++(globalStart->numEdges);
+    globalNFA->accepting[globalNFA->numAccepting-1] = nfaAcceptingIdx;
+    globalNFA->numAccepting++;
+    assert(globalNFA->numAccepting < MAX_EDGES_PER_NODE
+           && "Exhausted available memory");
   }
 
+  assert(globalNFA->numAccepting-1 == nontermTableSize && "BUG");
   print_nfa_graphviz(globalNFAIdx);
 }
 
@@ -138,7 +145,7 @@ void build_nfa(NonTerminalPtr _nontermTable, int _nontermTableSize,
 static PoolOffset build_single_symbol_nfa(char symbol) {
   PoolOffset nfaIdx = new_nfa();
   NFA nfa = nfaPool[nfaIdx];
-  nfaStatesPool[nfa.start].edges[0] = new_edge(nfa.accepting, symbol);
+  nfaStatesPool[nfa.start].edges[0] = new_edge(nfa.accepting[0], symbol);
   nfaStatesPool[nfa.start].numEdges++;
   return nfaIdx;
 }
@@ -161,12 +168,14 @@ static void build_concat_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
   assert(nfa1Idx != nfa2Idx && "Trying to concat an NFA to itself!\n");
   NFAPtr nfa1 = nfaPool + nfa1Idx;
   NFAPtr nfa2 = nfaPool + nfa2Idx;
-  NFAStatePtr nfa1Accepting = nfaStatesPool + nfa1->accepting;
+  assert(nfa1->numAccepting == 1  && nfa2->numAccepting == 1
+         && "Invalid NFAs");
+  NFAStatePtr nfa1Accepting = nfaStatesPool + nfa1->accepting[0];
   nfa1Accepting->type = INTERNAL;
   nfa1Accepting->edges[nfa1Accepting->numEdges] = new_edge(nfa2->start,
                                                            (char)EPSILON);
   nfa1Accepting->numEdges++;
-  nfa1->accepting = nfa2->accepting;
+  nfa1->accepting[0] = nfa2->accepting[0];
   update_state_type(nfa2->start, INTERNAL);
 }
 
@@ -196,10 +205,12 @@ static void build_or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
 
   NFAPtr nfa1 = nfaPool + nfa1Idx;
   NFAPtr nfa2 = nfaPool + nfa2Idx;
-  PoolOffset nfa1StartIdx = nfa1->start;
-  PoolOffset nfa1AcceptingIdx = nfa1->accepting;
+  assert(nfa1->numAccepting == 1  && nfa2->numAccepting == 1
+         && "Invalid NFAs");
+ PoolOffset nfa1StartIdx = nfa1->start;
+  PoolOffset nfa1AcceptingIdx = nfa1->accepting[0];
   PoolOffset nfa2StartIdx = nfa2->start;
-  PoolOffset nfa2AcceptingIdx = nfa2->accepting;
+  PoolOffset nfa2AcceptingIdx = nfa2->accepting[0];
 
   // Update old start and accepting states to be internal
   update_state_type(nfa1StartIdx, INTERNAL);
@@ -224,7 +235,7 @@ static void build_or_nfa(PoolOffset nfa1Idx, PoolOffset nfa2Idx) {
 
   // Update nfa1 with the new start and accepting states
   nfa1->start = newStartIdx;
-  nfa1->accepting = newAcceptingIdx;
+  nfa1->accepting[0] = newAcceptingIdx;
 }
 
 /// Build the NFA for r* for some regular expresion r expressed by the
@@ -251,8 +262,9 @@ static void build_closure_nfa(PoolOffset nfaIdx) {
   PoolOffset newAcceptingIdx = new_accepting_state();
 
   NFAPtr nfa = nfaPool + nfaIdx;
-  PoolOffset nfaStartIdx = nfa->start;
-  PoolOffset nfaAcceptingIdx = nfa->accepting;
+  assert(nfa->numAccepting == 1 && "Invalid NFAs");
+ PoolOffset nfaStartIdx = nfa->start;
+  PoolOffset nfaAcceptingIdx = nfa->accepting[0];
   NFAStatePtr nfaAccepting = nfaStatesPool + nfaAcceptingIdx;
 
   // Update old start and accepting to be internal states
@@ -273,7 +285,7 @@ static void build_closure_nfa(PoolOffset nfaIdx) {
     new_edge(newAcceptingIdx, EPSILON);
 
   nfa->start = newStartIdx;
-  nfa->accepting = newAcceptingIdx;
+  nfa->accepting[0] = newAcceptingIdx;
 }
 
 static PoolOffset build_expr_op_nfa(PoolOffset operandOffset,
@@ -348,7 +360,7 @@ static PoolOffset build_terminal_nfa(char *terminal) {
   PoolOffset nfaIdx = new_nfa();
   NFAPtr nfa = nfaPool + nfaIdx;
   nfa->start = startIdx;
-  nfa->accepting = prevStateIdx;
+  nfa->accepting[0] = prevStateIdx;
   return nfaIdx;
 }
 
@@ -381,7 +393,8 @@ static PoolOffset new_edge(PoolOffset target, char symbol) {
 static PoolOffset new_nfa() {
   assert(currentNFA < MAX_NFAS && "NFA pool ran out of memory!\n");
   nfaPool[currentNFA].start = new_start_state();
-  nfaPool[currentNFA].accepting = new_accepting_state();
+  nfaPool[currentNFA].accepting[0] = new_accepting_state();
+  nfaPool[currentNFA].numAccepting++;
   return currentNFA++;
 }
 
